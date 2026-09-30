@@ -5,7 +5,7 @@ severity: block
 event:
 - pre_tool
 match:
-  command: \b(zip|tar|7z|Compress-Archive|npm\s+pack)\b[^\n]*\.env\b(?!\.example)
+  command: \b(zip|tar|7z|Compress-Archive|npm\s+pack)\b[^\n]*\.env\b(?!\.(?:example|sample|template)\b)
   command_not: --exclude[= ]\S*\.env|-x\s+\S*\.env
 message: The archive would include .env with local keys. Leave it out (for example --exclude=.env) and
   ship .env.example instead.
@@ -14,8 +14,10 @@ tests:
   - command: zip -r release.zip src .env
   - tool: PowerShell
     command: Compress-Archive -Path .env,src -DestinationPath out.zip
+  - command: tar czf app.tgz src .env.local
   pass:
   - command: zip -r release.zip src README.md
   - command: tar czf app.tgz --exclude=.env src
   - command: zip -r release.zip src .env.example
+  - command: tar czf app.tgz src .env.sample .env.template
   - command: cat .env

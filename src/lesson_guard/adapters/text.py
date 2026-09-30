@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 
 from ..engine import Finding
+from ..redact import redact_text
 from . import Rendered, summary
 
 
@@ -28,8 +29,8 @@ def render_json(findings: list[Finding]) -> Rendered:
             "severity": f.guard.severity,
             "event": f.action.event,
             "tool": f.action.tool,
-            "path": f.action.path,
-            "message": f.guard.message,
+            "path": redact_text(f.action.path) if f.action.path else f.action.path,
+            "message": redact_text(f.guard.message),
             "source": f.guard.source,
         }
         for f in findings

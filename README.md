@@ -56,18 +56,26 @@ lesson-guard compile examples/notes --out /tmp/guards --llm fake:examples/fake-l
 Output of the second command:
 
 ```
+send      examples/notes/backup-duplicates.md -> the model (fake), 0 values redacted
+send      examples/notes/double-encoding.md -> the model (fake), 0 values redacted
+send      examples/notes/generated-client.md -> the model (fake), 0 values redacted
+send      examples/notes/image-server-free.md -> the model (fake), 0 values redacted
+send      examples/notes/line-endings.md -> the model (fake), 0 values redacted
+send      examples/notes/no-keys-in-packages.md -> the model (fake), 0 values redacted
+
 proposed  no-class-files-in-backups        /tmp/guards/proposed/no-class-files-in-backups.yaml
 proposed  no-double-encoded-utf8           /tmp/guards/proposed/no-double-encoded-utf8.yaml
 proposed  no-direct-edit-generated         /tmp/guards/proposed/no-direct-edit-generated.yaml
 proposed  image-server-no-free             /tmp/guards/proposed/image-server-no-free.yaml
 proposed  keep-mixed-line-endings          /tmp/guards/proposed/keep-mixed-line-endings.yaml
 proposed  no-secrets-in-files              /tmp/guards/proposed/no-secrets-in-files.yaml
+proposed  no-secret-files                  /tmp/guards/proposed/no-secret-files.yaml
 proposed  no-env-in-archives               /tmp/guards/proposed/no-env-in-archives.yaml
 rejected  image-server-no-free-loose       /tmp/guards/rejected/image-server-no-free-loose.yaml
             - tests.pass[0] should pass but was caught: 'curl https://example.org/freedom'
 skipped   examples/notes/answer-style.md: note type 'user' rarely describes a checkable mistake
 
-7 proposed, 1 rejected, 0 drafts, 1 skipped, 0 errors. Nothing was enabled; use 'lesson-guard enable ID'.
+8 proposed, 1 rejected, 0 drafts, 1 skipped, 0 errors. Nothing was enabled; use 'lesson-guard enable ID'.
 ```
 
 The rejected guard matched `/free` anywhere, so its own pass case (`/freedom`) failed. That is the
@@ -96,13 +104,16 @@ lesson-guard enable keep-mixed-line-endings
 ```
 
 `--llm claude` runs `claude -p --output-format json --json-schema ... --tools ""` once per actionable
-note, so no tools are available to the model and the answer must match the schema. The note text is
-sent to the model; do not compile notes you would not paste into a chat. The model cannot set the
-`source` field, the compiler fills it in.
+note, so no tools are available to the model and the answer must match the schema. Before anything
+is sent, `compile` prints one `send` line per note that will reach the model, with the number of
+redacted values. `--dry-run` prints the exact prompt per note and stops there. The model cannot set
+the `source` field, the compiler fills it in. See [Security](#security) for what is filtered.
 
 Notes whose front matter says `type: user` or `type: reference`, and notes without rule-like wording
 (never, always, do not, instead, ...), are skipped. `--all-notes` turns that filter off,
-`--exclude GLOB` skips files such as an index.
+`--exclude GLOB` skips files such as an index. Notes with `private: true` in their front matter and
+notes listed in `NOTES_DIR/.lesson-guard-ignore` (one glob per line, `#` for comments) are never
+read into a prompt or a draft.
 
 ## Guard format
 
@@ -216,11 +227,40 @@ valid ones still run.
 | `check` | evaluate active guards; `--json-stdin` for agent hooks, `--event pre_commit` for git |
 | `test [PATH...]` | run the tests inside guard files |
 | `list [--all]` | list active guards, with `--all` also proposed, drafts, rejected |
-| `compile NOTES_DIR` | propose guards; `--llm claude`, `none` or `fake:FILE` |
+| `compile NOTES_DIR` | propose guards; `--llm claude`, `none` or `fake:FILE`; `--dry-run` shows the payload |
 | `enable ID` / `disable ID` | move a guard into or out of the active set |
 | `install claude/codex/git` | print or merge the hook configuration |
 
 `--guards DIR` selects the guards directory everywhere (default `guards`, or `$LESSON_GUARD_DIR`).
+
+## Security
+
+Memory notes can contain secrets and private details. `lesson-guard compile` handles them like this:
+
+- Notes marked `private: true` in their front matter, notes matched by `--exclude GLOB` and notes
+  listed in `NOTES_DIR/.lesson-guard-ignore` are skipped. They appear in the report as skipped, with
+  the reason, and their text is never read into a prompt or a draft file.
+- The text of every other note is redacted before it is sent to the model or copied into a draft.
+  Replaced with `[REDACTED:kind]` are: known key formats (`sk-...`, `ghp_...`, `github_pat_...`,
+  `AKIA...`, `xox...`, `AIza...`, `glpat-...`, JWTs), whole private key blocks, `Bearer` and `Basic`
+  credentials, values assigned to names like `password`, `token`, `secret`, `api_key` (for example
+  `password=...` or `token: ...`), and long high-entropy strings. Placeholders such as
+  `your-api-key-here`, `$VAR` or `os.environ[...]` stay.
+- `compile` prints which notes are sent and how many values were redacted in each, before the first
+  model call. `--dry-run` prints the exact payload for each note and neither calls the model nor
+  writes files.
+- A proposed guard that contains one of the values redacted from its note is rejected, and the value
+  is removed from the file in `guards/rejected/`.
+
+`lesson-guard check` redacts its own output in the same way. The guard message, the file path of the
+checked action and error messages pass through the redaction before they reach the agent
+(`permissionDecisionReason`, `additionalContext`, `systemMessage`) or the terminal. The command and
+the file content being checked are never echoed.
+
+The example guard `no-secret-files` blocks writing and committing `.env`, `.env.*`, `*.pem`,
+`id_rsa`, `id_dsa`, `id_ecdsa` and `id_ed25519` by file name, whatever their content. `.env.example`,
+`.env.sample` and `.env.template` stay allowed, and `no-secrets-in-files` checks those templates for
+real-looking keys.
 
 ## Limitations
 
@@ -230,8 +270,13 @@ valid ones still run.
 - For Codex `apply_patch` updates the file content after the patch is not reconstructed, so
   `line_endings_changed` cannot fire there; the git pre-commit hook still catches it. For Claude
   `Edit` the content is reconstructed only when `old_string` occurs literally in the file.
-- `contains_secret_like` is a heuristic. It misses secrets in unusual formats and can flag random
-  test data.
+- `contains_secret_like` and the redaction are heuristics. They miss secrets in unusual formats
+  (a short password in prose, a hex key without a telling name) and can hide harmless long random
+  strings such as some URLs. Private data that is not secret-like, such as names, is not redacted:
+  mark such notes `private: true`. Use `--dry-run` to see what would leave the machine.
+- `no-secret-files` also blocks certificate files with the `.pem` extension, including public ones.
+  In the git pre-commit mode binary files and files over 2 MB are not turned into actions, so a
+  path-only guard does not see them either.
 - Globs are case-sensitive. Files over 2 MB and binary files are not inspected.
 - Regexes proposed by a model are not checked for catastrophic backtracking. Read proposed guards
   before enabling them.

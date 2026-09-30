@@ -219,6 +219,7 @@ class FakeBackend:
     def __init__(self, responses: dict[str, Any]):
         self.responses = responses
         self.calls: list[str] = []
+        self.texts: list[str] = []
 
     @classmethod
     def from_file(cls, path: str | Path) -> "FakeBackend":
@@ -227,6 +228,7 @@ class FakeBackend:
 
     def propose(self, source: str, text: str) -> dict[str, Any]:
         self.calls.append(source)
+        self.texts.append(text)
         stem = Path(source).stem
         for key in (source, source.replace("\\", "/"), stem):
             if key in self.responses:

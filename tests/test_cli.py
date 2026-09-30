@@ -81,7 +81,7 @@ def test_check_reports_invalid_guard_files(monkeypatch, capsys, tmp_path):
 
 def test_test_command(capsys, tmp_path):
     assert main(["test", "--guards", GUARDS]) == 0
-    assert "7 of 7 guard files passed" in capsys.readouterr().out
+    assert "8 of 8 guard files passed" in capsys.readouterr().out
     assert main(["test", str(EXAMPLES / "guards" / "rejected")]) == 1
     assert "FAIL" in capsys.readouterr().out
 
@@ -98,7 +98,7 @@ def test_compile_command_never_enables(capsys, tmp_path):
                  "--llm", "fake:" + str(EXAMPLES / "fake-llm" / "responses.json")])
     assert code == 0
     text = capsys.readouterr().out
-    assert "7 proposed, 1 rejected" in text and "Nothing was enabled" in text
+    assert "8 proposed, 1 rejected" in text and "Nothing was enabled" in text
     assert not list(out_dir.glob("*.yaml"))
 
 

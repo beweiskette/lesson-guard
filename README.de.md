@@ -59,18 +59,26 @@ lesson-guard compile examples/notes --out /tmp/guards --llm fake:examples/fake-l
 Ausgabe des zweiten Befehls:
 
 ```
+send      examples/notes/backup-duplicates.md -> the model (fake), 0 values redacted
+send      examples/notes/double-encoding.md -> the model (fake), 0 values redacted
+send      examples/notes/generated-client.md -> the model (fake), 0 values redacted
+send      examples/notes/image-server-free.md -> the model (fake), 0 values redacted
+send      examples/notes/line-endings.md -> the model (fake), 0 values redacted
+send      examples/notes/no-keys-in-packages.md -> the model (fake), 0 values redacted
+
 proposed  no-class-files-in-backups        /tmp/guards/proposed/no-class-files-in-backups.yaml
 proposed  no-double-encoded-utf8           /tmp/guards/proposed/no-double-encoded-utf8.yaml
 proposed  no-direct-edit-generated         /tmp/guards/proposed/no-direct-edit-generated.yaml
 proposed  image-server-no-free             /tmp/guards/proposed/image-server-no-free.yaml
 proposed  keep-mixed-line-endings          /tmp/guards/proposed/keep-mixed-line-endings.yaml
 proposed  no-secrets-in-files              /tmp/guards/proposed/no-secrets-in-files.yaml
+proposed  no-secret-files                  /tmp/guards/proposed/no-secret-files.yaml
 proposed  no-env-in-archives               /tmp/guards/proposed/no-env-in-archives.yaml
 rejected  image-server-no-free-loose       /tmp/guards/rejected/image-server-no-free-loose.yaml
             - tests.pass[0] should pass but was caught: 'curl https://example.org/freedom'
 skipped   examples/notes/answer-style.md: note type 'user' rarely describes a checkable mistake
 
-7 proposed, 1 rejected, 0 drafts, 1 skipped, 0 errors. Nothing was enabled; use 'lesson-guard enable ID'.
+8 proposed, 1 rejected, 0 drafts, 1 skipped, 0 errors. Nothing was enabled; use 'lesson-guard enable ID'.
 ```
 
 Der abgelehnte Guard reagierte auf `/free` an jeder Stelle, deshalb scheiterte sein eigener
@@ -100,13 +108,16 @@ lesson-guard enable keep-mixed-line-endings
 
 `--llm claude` ruft pro Notiz, die nach einer Regel aussieht, einmal
 `claude -p --output-format json --json-schema ... --tools ""` auf. Das Modell hat dabei keine
-Werkzeuge, und die Antwort muss dem Schema entsprechen. Der Text der Notiz geht an das Modell, also
-kompiliere nur Notizen, die du auch in einen Chat kopieren würdest. Das Feld `source` setzt der
-Compiler selbst, nicht das Modell.
+Werkzeuge, und die Antwort muss dem Schema entsprechen. Bevor etwas verschickt wird, gibt `compile`
+für jede Notiz, die an das Modell geht, eine Zeile `send` aus, samt der Zahl geschwärzter Werte.
+`--dry-run` zeigt den genauen Prompt pro Notiz und hört dort auf. Das Feld `source` setzt der
+Compiler selbst, nicht das Modell. Was gefiltert wird, steht unter [Sicherheit](#sicherheit).
 
 Übersprungen werden Notizen mit `type: user` oder `type: reference` im Front Matter und Notizen ohne
 regelartige Wörter (never, always, do not, nie, immer, nicht, statt und ähnliche). `--all-notes`
-schaltet diesen Filter ab, `--exclude GLOB` lässt Dateien wie ein Inhaltsverzeichnis aus.
+schaltet diesen Filter ab, `--exclude GLOB` lässt Dateien wie ein Inhaltsverzeichnis aus. Notizen
+mit `private: true` im Front Matter und Notizen, die in `NOTIZORDNER/.lesson-guard-ignore` stehen
+(ein Glob pro Zeile, `#` für Kommentare), landen nie in einem Prompt oder Entwurf.
 
 ## Aufbau eines Guards
 
@@ -223,11 +234,42 @@ werden mit einer Meldung übersprungen, die gültigen laufen trotzdem.
 | `check` | aktive Guards prüfen; `--json-stdin` für Agenten-Hooks, `--event pre_commit` für git |
 | `test [PFAD...]` | die Tests in Guard-Dateien ausführen |
 | `list [--all]` | aktive Guards auflisten, mit `--all` auch Vorschläge, Entwürfe und abgelehnte |
-| `compile NOTIZORDNER` | Guards vorschlagen; `--llm claude`, `none` oder `fake:DATEI` |
+| `compile NOTIZORDNER` | Guards vorschlagen; `--llm claude`, `none` oder `fake:DATEI`; `--dry-run` zeigt, was verschickt würde |
 | `enable ID` / `disable ID` | einen Guard aktivieren oder zurück zu den Vorschlägen legen |
 | `install claude/codex/git` | Hook-Konfiguration ausgeben oder einfügen |
 
 `--guards ORDNER` wählt überall den Guard-Ordner (Standard `guards` oder `$LESSON_GUARD_DIR`).
+
+## Sicherheit
+
+Notizen aus dem Gedächtnis eines Agenten können Geheimnisse und private Angaben enthalten.
+`lesson-guard compile` geht damit so um:
+
+- Notizen mit `private: true` im Front Matter, Notizen, auf die `--exclude GLOB` passt, und Notizen
+  aus `NOTIZORDNER/.lesson-guard-ignore` werden übersprungen. Sie stehen mit Grund im Bericht, ihr
+  Text wird aber nie in einen Prompt oder eine Entwurfsdatei gelesen.
+- Der Text aller anderen Notizen wird geschwärzt, bevor er an das Modell geht oder in einen Entwurf
+  kopiert wird. Durch `[REDACTED:art]` ersetzt werden: bekannte Schlüsselformate (`sk-...`,
+  `ghp_...`, `github_pat_...`, `AKIA...`, `xox...`, `AIza...`, `glpat-...`, JWTs), ganze Blöcke
+  privater Schlüssel, Zugangsdaten nach `Bearer` und `Basic`, Werte, die Namen wie `password`,
+  `token`, `secret` oder `api_key` zugewiesen sind (etwa `password=...` oder `token: ...`), und lange
+  Zeichenketten mit hoher Entropie. Platzhalter wie `your-api-key-here`, `$VAR` oder
+  `os.environ[...]` bleiben stehen.
+- `compile` meldet vor dem ersten Modellaufruf, welche Notizen verschickt werden und wie viele Werte
+  in jeder geschwärzt wurden. `--dry-run` gibt für jede Notiz den genauen Inhalt aus, ruft kein
+  Modell auf und schreibt keine Dateien.
+- Enthält ein vorgeschlagener Guard einen Wert, der aus seiner Notiz geschwärzt wurde, wird er
+  abgelehnt, und der Wert wird aus der Datei in `guards/rejected/` entfernt.
+
+`lesson-guard check` schwärzt seine eigene Ausgabe auf dieselbe Weise. Die Meldung des Guards, der
+Dateipfad der geprüften Aktion und Fehlermeldungen laufen durch die Schwärzung, bevor sie den
+Agenten (`permissionDecisionReason`, `additionalContext`, `systemMessage`) oder das Terminal
+erreichen. Den geprüften Befehl und den Dateiinhalt gibt `check` nie wieder aus.
+
+Der Beispiel-Guard `no-secret-files` blockiert das Schreiben und Committen von `.env`, `.env.*`,
+`*.pem`, `id_rsa`, `id_dsa`, `id_ecdsa` und `id_ed25519` allein anhand des Dateinamens, egal was
+darin steht. `.env.example`, `.env.sample` und `.env.template` bleiben erlaubt, und
+`no-secrets-in-files` prüft diese Vorlagen auf echt wirkende Schlüssel.
 
 ## Grenzen
 
@@ -238,8 +280,14 @@ werden mit einer Meldung übersprungen, die gültigen laufen trotzdem.
 - Bei `apply_patch`-Änderungen von Codex wird der Dateiinhalt nach dem Patch nicht rekonstruiert.
   `line_endings_changed` kann dort nicht greifen; der git-pre-commit-Hook fängt es trotzdem ab. Bei
   `Edit` von Claude wird der Inhalt nur rekonstruiert, wenn `old_string` wörtlich in der Datei steht.
-- `contains_secret_like` ist eine Heuristik. Geheimnisse in ungewohnten Formaten rutschen durch, und
-  zufällige Testdaten können anschlagen.
+- `contains_secret_like` und die Schwärzung sind Heuristiken. Geheimnisse in ungewohnten Formaten
+  rutschen durch (ein kurzes Passwort im Fliesstext, ein Hex-Schlüssel ohne sprechenden Namen), und
+  harmlose lange Zufallsketten wie manche URLs können geschwärzt werden. Private Angaben, die nicht
+  wie ein Geheimnis aussehen, etwa Namen, werden nicht geschwärzt: Solche Notizen mit
+  `private: true` markieren. Mit `--dry-run` siehst du, was den Rechner verlassen würde.
+- `no-secret-files` blockiert auch Zertifikatsdateien mit der Endung `.pem`, öffentliche
+  eingeschlossen. Im git-pre-commit-Modus werden Binärdateien und Dateien über 2 MB nicht zu
+  Aktionen, deshalb sieht sie auch ein Guard nicht, der nur auf den Pfad schaut.
 - Globs unterscheiden Gross- und Kleinschreibung. Dateien über 2 MB und Binärdateien werden nicht
   geprüft.
 - Reguläre Ausdrücke aus Modellvorschlägen werden nicht auf katastrophales Backtracking geprüft. Lies

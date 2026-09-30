@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..engine import Finding
+from ..redact import redact_text
 
 
 @dataclass
@@ -15,9 +16,12 @@ class Rendered:
 
 
 def describe(finding: Finding) -> str:
+    # Everything printed here goes back to the agent. The path comes from the
+    # checked action and the message from a guard file, so neither is trusted
+    # to be free of secret-like strings.
     g = finding.guard
     where = f" ({finding.action.path})" if finding.action.path else ""
-    return f"[{g.id}]{where} {g.message} (lesson: {g.source})"
+    return redact_text(f"[{g.id}]{where} {g.message} (lesson: {g.source})")
 
 
 def summary(findings: list[Finding], blocking: bool) -> str:

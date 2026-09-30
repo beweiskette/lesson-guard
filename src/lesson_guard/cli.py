@@ -12,10 +12,11 @@ import yaml
 
 from . import __version__
 from .adapters import render
-from .compiler import REJECT_KEY, compile_notes
+from .compiler import REJECT_KEY, compile_notes, plan
 from .engine import evaluate
-from .llm import ClaudeBackend, FakeBackend
+from .llm import ClaudeBackend, FakeBackend, build_prompt
 from .model import GuardError, guard_files, guard_from_dict, load_guards, read_yaml
+from .redact import redact_text
 from .selftest import run_guard_tests
 from .store import STAGES, StoreError, disable, enable
 
@@ -60,7 +61,7 @@ def cmd_check(args: argparse.Namespace) -> int:
         findings = evaluate(guards, actions, cwd)
         result = render(args.format, findings)
     except Exception as exc:  # a broken hook must say why, not crash silently
-        _err(f"lesson-guard: {type(exc).__name__}: {exc}")
+        _err(redact_text(f"lesson-guard: {type(exc).__name__}: {exc}"))
         return error_code
 
     if result.stdout:
@@ -168,9 +169,33 @@ def _backend(spec: str, model: str | None):
     raise SystemExit(f"unknown --llm {spec!r}; use claude, none or fake:FILE")
 
 
+def _print_plan(args: argparse.Namespace, backend) -> None:
+    """Say which notes leave the machine before anything is sent."""
+    outgoing, skipped = plan(args.notes_dir, all_notes=args.all_notes, exclude=args.exclude)
+    target = "a draft file" if backend is None else f"the model ({backend.name})"
+    for item in outgoing:
+        count = len(item.redacted.redactions)
+        print(f"send      {item.note.source} -> {target}, {count} value{'s' if count != 1 else ''} redacted")
+    if args.dry_run:
+        for source, why in skipped:
+            print(f"skipped   {source}: {why}")
+        if backend is None:
+            print("\n--llm none sends nothing to a model; the redacted note text goes into the draft files.")
+        for item in outgoing:
+            print(f"\n===== payload for {item.note.source} =====")
+            print(build_prompt(item.note.source, item.text), end="")
+            print(f"===== end of payload for {item.note.source} =====")
+        print(f"\ndry run: {len(outgoing)} notes would be used, {len(skipped)} skipped. Nothing was sent or written.")
+    elif outgoing:
+        print()
+
+
 def cmd_compile(args: argparse.Namespace) -> int:
     backend = _backend(args.llm, args.model)
     out = args.out or args.guards
+    _print_plan(args, backend)
+    if args.dry_run:
+        return 0
     report = compile_notes(args.notes_dir, out, backend, all_notes=args.all_notes, exclude=args.exclude)
     for gid, path in report.proposed:
         print(f"proposed  {gid:32} {path.as_posix()}")
@@ -287,7 +312,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--llm", default="none", help="claude, none (skeletons) or fake:FILE (canned JSON)")
     p.add_argument("--model", default=None, help="model for --llm claude")
     p.add_argument("--all-notes", action="store_true", help="do not skip notes that look non-actionable")
-    p.add_argument("--exclude", action="append", default=[], help="glob of note files to skip (repeatable)")
+    p.add_argument("--exclude", action="append", default=[],
+                   help="glob of note files to skip (repeatable); also read from NOTES_DIR/.lesson-guard-ignore")
+    p.add_argument("--dry-run", action="store_true",
+                   help="print the exact redacted payload per note; call no model and write nothing")
     p.set_defaults(func=cmd_compile)
 
     p = sub.add_parser("enable", parents=[common], help="activate a proposed guard after re-running its tests")
