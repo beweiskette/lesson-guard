@@ -1,0 +1,27 @@
+id: no-double-encoded-utf8
+source: examples/notes/double-encoding.md
+description: Text must not contain UTF-8 that was decoded as cp1252 and encoded again.
+severity: block
+event:
+- pre_edit
+- pre_commit
+match:
+  predicates:
+  - utf8_double_encoded
+message: The new text contains mojibake such as 'Ã¼' for 'ü'. Read and write the file as UTF-8 and fix
+  the broken characters.
+tests:
+  block:
+  - path: scripts/greeting.py
+    content: |
+      print('GrÃ¼ezi')
+  - path: docs/notes.md
+    content: |
+      Itâ€™s done
+  pass:
+  - path: scripts/greeting.py
+    content: |
+      print('Grüezi')
+  - path: docs/price.md
+    content: |
+      Price: 5 € or 4.50 £, façade, naïve

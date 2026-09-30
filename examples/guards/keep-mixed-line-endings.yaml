@@ -1,0 +1,37 @@
+id: keep-mixed-line-endings
+source: examples/notes/line-endings.md
+description: Files that mix CRLF and LF must keep their line endings.
+severity: block
+event:
+- pre_edit
+- pre_commit
+match:
+  predicates:
+  - line_endings_changed
+  - name: mixed_line_endings
+    'on': original
+message: This file mixes CRLF and LF on purpose and the change normalizes that. Keep the original line
+  endings and change only the lines you mean to change.
+tests:
+  block:
+  - path: tools/runner.py
+    original: "a = 1\r\nb = 2\nc = 3\r\n"
+    content: |
+      a = 1
+      b = 2
+      c = 4
+  - event: pre_commit
+    path: tools/store.py
+    original: "x\r\ny\nz\r\n"
+    content: "x\r\ny\r\nz\r\n"
+  pass:
+  - path: tools/runner.py
+    original: "a = 1\r\nb = 2\nc = 3\r\n"
+    content: "a = 1\r\nb = 2\nc = 4\r\n"
+  - path: README.md
+    original: |
+      one
+      two
+    content: "one\r\ntwo\r\n"
+  - path: tools/new.py
+    content: "a\r\nb\n"

@@ -1,0 +1,33 @@
+id: no-class-files-in-backups
+source: examples/notes/backup-duplicates.md
+description: No script copies with class declarations inside backup folders of the project.
+severity: block
+event:
+- pre_edit
+- pre_commit
+match:
+  path:
+  - '**/backup*/**'
+  - '**/*_backup/**'
+  content: ^\s*(class_name|class)\s+\w+
+message: Backup copies inside the project declare the same classes twice. Put the backup outside the project
+  tree or rely on version control.
+tests:
+  block:
+  - path: backup_old/scripts/player.gd
+    content: |
+      extends Node
+      class_name Player
+  - event: pre_commit
+    path: src/backups/models.py
+    content: |
+      class User:
+          pass
+  pass:
+  - path: scripts/player.gd
+    content: |
+      extends Node
+      class_name Player
+  - path: backup_old/notes.txt
+    content: |
+      old notes

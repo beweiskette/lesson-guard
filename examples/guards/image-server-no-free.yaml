@@ -1,0 +1,21 @@
+id: image-server-no-free
+source: examples/notes/image-server-free.md
+description: The /free endpoint of the shared image server unloads all models.
+severity: block
+event:
+- pre_tool
+match:
+  command: (?i)https?://\S+/free\b
+message: Calling /free unloads every model on the shared image server for all users. Wait for the queue
+  to drain or ask the owner instead.
+tests:
+  block:
+  - command: 'curl -X POST http://localhost:9000/free -d ''{"unload_models": true}'''
+  - tool: PowerShell
+    command: Invoke-RestMethod -Method Post -Uri http://localhost:9000/free
+  - tool: mcp__fetch__fetch
+    command: '{"method": "POST", "url": "http://localhost:9000/free"}'
+  pass:
+  - command: curl http://localhost:9000/queue
+  - command: curl https://example.org/freedom
+  - command: free -h

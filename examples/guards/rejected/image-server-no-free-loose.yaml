@@ -1,0 +1,16 @@
+id: image-server-no-free-loose
+source: examples/notes/image-server-free.md
+description: Looser variant a model might propose; its own tests show it is too broad.
+severity: block
+event:
+- pre_tool
+match:
+  command: /free
+message: Do not call /free on the image server.
+tests:
+  block:
+  - command: curl -X POST http://localhost:9000/free
+  pass:
+  - command: curl https://example.org/freedom
+rejected_reasons:
+- 'tests.pass[0] should pass but was caught: ''curl https://example.org/freedom'''
