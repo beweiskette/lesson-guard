@@ -37,7 +37,7 @@ notes/*.md  --compile-->  guards/proposed/*.yaml  --enable-->  guards/*.yaml  --
 Python 3.11 oder neuer. Einzige Laufzeitabhängigkeit ist PyYAML.
 
 ```
-git clone <Repository-URL> lesson-guard
+git clone https://github.com/beweiskette/lesson-guard.git
 cd lesson-guard
 python -m pip install .
 ```
